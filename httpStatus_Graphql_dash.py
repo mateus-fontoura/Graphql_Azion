@@ -7,6 +7,7 @@ from dash import dcc
 from dash.dependencies import Input, Output
 import datetime
 import dash_table
+import plotly.graph_objs as go
 
 # Define the current date and the date 30 days ago
 current_date = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -43,7 +44,7 @@ query = f"""query EventsQuery{{
 # Define the API endpoint and headers
 url = "https://api.azionapi.net/events/graphql"
 headers = {
-    "Authorization": "Token azionXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "Authorization": "Token azionXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
     "Content-Type": "application/json"
 }
 data = {"query": query}
@@ -143,12 +144,18 @@ app.layout = html.Div(children=[
             )
         ])
     ], style={'background-color': 'darkgray'}),
-
-    # dcc.Interval(
-    #     id='interval-component',
-    #     interval=5*1000,  # in milliseconds
-    #     n_intervals=0
-    # ),
+    html.Div(className='row', children=[
+        html.Div(className='col-md-6', children=[
+            dcc.Graph(
+                id='status-429-444-200-graph'
+            )
+        ]),
+        html.Div(className='col-md-6', children=[
+            dcc.Graph(
+                id='upstream-request-time-graph'
+            )
+        ])
+    ]),
     # Add the table of the remote address top 5 and table of the requesturi top 5
     html.Div(className='row', children=[
         html.Div(className='col-md-6', children=[
@@ -162,6 +169,82 @@ app.layout = html.Div(children=[
 
 
 
+def generate_comparison_chart(status_codes, title, filtered_data):
+    data = []
+    colors = ['green', 'blue', 'yellow']
+    for i, s in enumerate(status_codes):
+        data.append(
+            dict(
+                x=filtered_data[filtered_data['status'] == s]['ts'],
+                y=filtered_data[filtered_data['status'] == s]['counts'],
+                type='bar',
+                name=str(s),
+                marker=dict(
+                    color=colors[i]
+                )
+            )
+        )
+
+    return {
+        'data': data,
+        'layout': dict(
+            title=title,
+            xaxis=dict(
+                title='Timestamp',
+            ),
+            yaxis=dict(
+                title='Count'
+            ),
+            paper_bgcolor='darkgray',
+            plot_bgcolor='lightgray'
+        )
+    }
+
+def generate_request_time_chart(title, filtered_data):
+    # calculate the average request time and limit the maximum value to 120 seconds
+    filtered_data['requestTime'] = pd.to_numeric(filtered_data['requestTime'], errors='coerce')
+    filtered_data['requestTime'] = filtered_data['requestTime'].fillna(0)
+    filtered_data['requestTime'] = filtered_data['requestTime'].apply(lambda x: min(x, 120))
+    filtered_data['upstreamResponseTime'] = pd.to_numeric(filtered_data['upstreamResponseTime'], errors='coerce')
+    filtered_data['upstreamResponseTime'] = filtered_data['upstreamResponseTime'].fillna(0)
+    filtered_data['upstreamResponseTime'] = filtered_data['upstreamResponseTime'].apply(lambda x: min(x, 120))
+    avg_request_time = filtered_data.groupby('ts').agg({'requestTime': 'mean', 'upstreamResponseTime': 'mean'}).reset_index()
+
+    data = [
+        go.Bar(
+            x=avg_request_time['ts'],
+            y=avg_request_time['requestTime'],
+            name='requestTime',
+            marker=dict(
+                color='green'
+            )
+        ),
+        go.Bar(
+            x=avg_request_time['ts'],
+            y=avg_request_time['upstreamResponseTime'],
+            name='upstreamResponseTime',
+            marker=dict(
+                color='lightyellow'
+            )
+        )
+    ]
+
+    return {
+        'data': data,
+        'layout': dict(
+            title=title,
+            xaxis=dict(
+                title='Timestamp'
+            ),
+            yaxis=dict(
+                title='Average Time (s)',
+                range=[0, 120]
+            ),
+            paper_bgcolor='darkgray',
+            plot_bgcolor='lightgray',
+            barmode='group'
+        )
+    }
 
 
 def generate_chart(start, end, color, title, filtered_data):
@@ -236,6 +319,26 @@ def update_status_5xx_graph(start_date, end_date):
     filtered_data = filtered_data[(filtered_data['ts'] >= start_date) & (filtered_data['ts'] <= end_date)]
     return generate_chart(500, 599, 'red', "Status 5XX", filtered_data)
 
+@app.callback(
+    Output('status-429-444-200-graph', 'figure'),
+    [Input('status-date-range', 'start_date'),
+     Input('status-date-range', 'end_date')]
+)
+def update_status_429_444_200_graph(start_date, end_date):
+    filtered_data = status_counts[(status_counts['status'] == 429) | (status_counts['status'] == 444) | (status_counts['status'] == 200)]
+    filtered_data = filtered_data[(filtered_data['ts'] >= start_date) & (filtered_data['ts'] <= end_date)]
+    return generate_comparison_chart([429, 444, 200], "Status 429 x 444 x 200", filtered_data)
+
+@app.callback(
+    Output('upstream-request-time-graph', 'figure'),
+    [Input('status-date-range', 'start_date'),
+     Input('status-date-range', 'end_date')]
+)
+def update_upstream_request_time_graph(start_date, end_date):
+    filtered_data = df[(df['ts'] >= start_date) & (df['ts'] <= end_date)]
+
+    return generate_request_time_chart('Request Time and Upstream Response Time', filtered_data)
+
 
 ##########################################################################################
 @app.callback(
@@ -275,7 +378,7 @@ def update_upstream_status_graph(start_date, end_date):
     # Define the API endpoint and headers
     url = "https://api.azionapi.net/events/graphql"
     headers = {
-        "Authorization": "Token azionXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        "Authorization": "Token azionXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
         "Content-Type": "application/json"
     }
     data = {"query": query}

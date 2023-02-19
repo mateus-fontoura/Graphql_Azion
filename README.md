@@ -1,18 +1,19 @@
 # Graphql_Azion
 
-Overview:
+**Overview:**
 This code is a Python script that retrieves data from an API endpoint, transforms the data into a Pandas DataFrame, and creates several interactive visualizations using the Dash framework. The visualizations show various metrics related to HTTP requests, including the count of HTTP response status codes (2xx, 3xx, 4xx, and 5xx), the count of requests by remote address and request URI, and the average request time and upstream response time.
 
 Dependencies:
 This code requires the following Python libraries to be installed:
 
-requests
-pandas
-dash
-dash_table
-plotly
+- requests
+- pandas
+- dash
+- dash_table
+- plotly
+
 To install these dependencies, you can use the pip package manager. For example, you can run the following command in your terminal or command prompt:
-pip install requests pandas dash dash_table plotly
+```pip install requests pandas dash dash_table plotly```
 
 Usage:
 To run the script, simply execute it in a Python environment that has the required dependencies installed. If you are running the script for the first time, you will be prompted to enter your authentication token for the API endpoint. The token will be stored in an environment variable for future use. Once the script is running, you can view the interactive visualizations in a web browser by navigating to http://localhost:8050/. The visualizations can be filtered by date range using the date picker components.

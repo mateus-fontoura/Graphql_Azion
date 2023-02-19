@@ -4,10 +4,13 @@ import dash
 from dash import html
 from dash import dcc
 #from django.shortcuts import render
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
 import datetime
 import dash_table
 import plotly.graph_objs as go
+import os
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 # Define the current date and the date 30 days ago
 current_date = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -15,6 +18,21 @@ days_to_retrieve = 30
 last_month_date = (datetime.datetime.now() - datetime.timedelta(days=days_to_retrieve)).strftime("%Y-%m-%dT%H:%M:%S")
 
 
+
+# Get the user input token, if it's not already set
+if "AUTH_TOKEN" in os.environ:
+    user_token = os.environ["AUTH_TOKEN"]
+else:
+    user_token = input("Enter your authentication token: ")
+    os.environ["AUTH_TOKEN"] = user_token  # store the token in the environment variable for future use
+
+
+# Define the API endpoint and headers
+url = "https://api.azionapi.net/events/graphql"
+headers = {
+    "Authorization": f"Token {user_token}",
+    "Content-Type": "application/json"
+}
 
 # Define the GraphQL query
 query = f"""query EventsQuery{{
@@ -41,50 +59,43 @@ query = f"""query EventsQuery{{
         }}
 }}"""
 
-# Define the API endpoint and headers
-url = "https://api.azionapi.net/events/graphql"
-headers = {
-    "Authorization": "Token azionXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-    "Content-Type": "application/json"
-}
 data = {"query": query}
 
 # Send the request to the GraphQL API endpoint
 result = requests.post(url, headers=headers, json=data).json()
 print(result)
+
 # Transform the JSON data from the query result into a pandas DataFrame
 df = pd.DataFrame(result["data"]["httpEvents"])
 
 # Count the occurrences of each status for each timestamp
 df['ts'] = pd.to_datetime(df['ts'])
-df['ts'] = df['ts'].dt.round('min')
-status_counts = df.groupby(['ts', 'status']).size().reset_index(name='counts')
+df.loc[:, 'ts'] = pd.to_datetime(df['ts'].dt.round('min'))
 
+status_counts = df.groupby(['ts', 'status']).size().reset_index(name='counts').copy()
 
 # Get the top five remote addresses and their occurrence counts
-top_remote_addresses = df.groupby('remoteAddress')['count'].sum().reset_index().sort_values('count', ascending=False).head(5)
+top_remote_addresses = df.groupby('remoteAddress')['count'].sum().reset_index().sort_values('count', ascending=False).head(10).loc[:, ['remoteAddress', 'count']]
+
 # Get the top five RequestUri's and their occurrence counts
-top_requestUri = df.groupby('requestUri')['count'].sum().reset_index().sort_values('count', ascending=False).head(5)
+top_requestUri = df.groupby('requestUri')['count'].sum().reset_index().sort_values('count', ascending=False).head(10).loc[:, ['requestUri', 'count']]
+
+
 
 # Create the table for remote address number of accesses
 table_remoteaddress = dash_table.DataTable(
     id='top-remote-addresses',
-    columns=[
-        {'name': 'Remote Address', 'id': 'remoteAddress'},
-        {'name': 'Count', 'id': 'count'},
-    ],
-    data=top_remote_addresses.to_dict('records'),
+    columns=[        {'name': 'Remote Address', 'id': 'remoteAddress'},        {'name': 'Count', 'id': 'count'},    ],
+    data=top_remote_addresses.loc[:, ['remoteAddress', 'count']].copy().to_dict('records'),
     style_cell={'backgroundColor': 'darkgray'}
 )
+
 
 # Create the table for remote address number of accesses
 table_requesturi = dash_table.DataTable(
     id='top-requestUri',
-    columns=[
-        {'name': 'requestUri', 'id': 'requestUri'},
-        {'name': 'Count', 'id': 'count'},
-    ],
-    data=top_requestUri.to_dict('records'),
+    columns=[        {'name': 'requestUri', 'id': 'requestUri'},        {'name': 'Count', 'id': 'count'},    ],
+    data=top_requestUri.loc[:, ['requestUri', 'count']].copy().to_dict('records'),
     style_cell={'backgroundColor': 'darkgray'}
 )
 
@@ -94,22 +105,19 @@ app.layout = html.Div(children=[
     html.H1([
         html.Link(rel='stylesheet', href='https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css')
     ]),
-    html.H1(children=['''
-        A dashboard to display HTTP events data.
-    ''']),
-        
+
     html.Div(children=[
         dcc.DatePickerRange(
             id='status-date-range',
             start_date=last_month_date,
-            end_date=datetime.datetime.now().strftime("%Y-%m-%d")
+            end_date=datetime.datetime.now().strftime("%Y-%m-%d"),
         ),
         dcc.DatePickerRange(
             id='upstream-status-date-range',
             start_date=last_month_date,
             end_date=datetime.datetime.now().strftime("%Y-%m-%d")
         )
-    ], style={'background-color': 'darkgray'}),
+    ], style={'background-color': 'darkgray', 'display': 'none'}),
 
     html.Div(className='row', children=[
         html.Div(className='col-md-6', children=[
@@ -276,14 +284,18 @@ def generate_chart(start, end, color, title, filtered_data):
         )
     }
 
+
+
 @app.callback(
     Output('status-2xx-graph', 'figure'),
     [Input('status-date-range', 'start_date'),
      Input('status-date-range', 'end_date')]
 )
 def update_status_2xx_graph(start_date, end_date):
-    filtered_data = status_counts[(status_counts['status'] >= 200) & (status_counts['status'] <= 299)]
-    filtered_data = filtered_data[(filtered_data['ts'] >= start_date) & (filtered_data['ts'] <= end_date)]
+    filtered_data = status_counts.loc[(status_counts['status'] >= 200) & (status_counts['status'] <= 299), :]
+
+    filtered_data = filtered_data.loc[(filtered_data['ts'] >= start_date) & (filtered_data['ts'] <= end_date), :]
+
     return generate_chart(200, 299, 'green', "Status 2XX", filtered_data)
 
 
@@ -343,55 +355,12 @@ def update_upstream_request_time_graph(start_date, end_date):
 ##########################################################################################
 @app.callback(
     Output('upstream-status-graph', 'figure'),
-    Input('upstream-status-date-range','start_date'),
-    Input('upstream-status-date-range','end_date')
+    [Input('upstream-status-date-range','start_date'),
+     Input('upstream-status-date-range','end_date')]
 )
 def update_upstream_status_graph(start_date, end_date):
-    # Define the current date and the date 30 days ago
-    current_date = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    days_to_retrieve = 30
-    last_month_date = (datetime.datetime.now() - datetime.timedelta(days=days_to_retrieve)).strftime("%Y-%m-%dT%H:%M:%S")
-
-    # Define the GraphQL query
-    query = f"""query EventsQuery{{
-        httpEvents(
-            limit: 10000,
-            filter: {{
-         tsRange: {{begin:"{last_month_date}", end:"{current_date}"}}
-       }},
-            aggregate: {{count: ts}}
-            groupBy: [ts,requestUri,status,host, upstreamStatus, requestTime, upstreamResponseTime]
-            orderBy: [count_DESC]
-            )
-            {{
-                ts
-                host
-                requestUri
-                status
-                upstreamStatus
-                requestTime
-                upstreamResponseTime
-                count
-            }}
-    }}"""
-
-    # Define the API endpoint and headers
-    url = "https://api.azionapi.net/events/graphql"
-    headers = {
-        "Authorization": "Token azionXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-        "Content-Type": "application/json"
-    }
-    data = {"query": query}
-
-    # Send the request to the GraphQL API endpoint
-    result = requests.post(url, headers=headers, json=data).json()
-    # Transform the JSON data from the query result into a pandas DataFrame
-    df = pd.DataFrame(result["data"]["httpEvents"])
-
-    # Count the occurrences of each status for each timestamp
-    df['ts'] = pd.to_datetime(df['ts'])
-    df['ts'] = df['ts'].dt.round('min')
-    upstream_status_counts = df.groupby(['ts', 'upstreamStatus']).size().reset_index(name='counts')
+    filtered_data = df[(df['ts'] >= start_date) & (df['ts'] <= end_date)]
+    upstream_status_counts = filtered_data.groupby(['ts', 'upstreamStatus']).size().reset_index(name='counts')
 
     return {
         'data': [            {                'x': upstream_status_counts[upstream_status_counts['upstreamStatus'] == status]['ts'],

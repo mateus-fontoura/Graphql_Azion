@@ -99,6 +99,33 @@ table_requesturi = dash_table.DataTable(
     style_cell={'backgroundColor': 'darkgray'}
 )
 
+# Create the heading element for the table
+table_heading = html.H2("Last 100 requests")
+
+# Create a table for the last 100 results
+table_last_100_results = dash_table.DataTable(
+    id='last-100-results',
+    columns=[        {'name': 'Timestamp', 'id': 'ts'},
+            {'name': 'Host', 'id': 'host'},
+            {'name': 'Request Uri','id': 'requestUri'},
+            {'name': 'Status', 'id': 'status'},
+            {'name': 'Upstream Status', 'id': 'upstreamStatus'},
+            {'name': 'Request Time', 'id': 'requestTime'},
+            {'name': 'Upstream Response Time', 'id': 'upstreamResponseTime'},
+            {'name': 'Remote Address', 'id': 'remoteAddress'}    ],
+    style_cell={'backgroundColor': 'darkgray'},
+    style_data_conditional=[{'if': {'row_index': 'odd'},'backgroundColor': 'rgb(248, 248, 248)'}],
+    style_header={
+        'backgroundColor': 'darkgray',
+        'fontWeight': 'bold'
+    },
+    style_table={
+        'maxHeight': '500px',
+        'overflowY': 'scroll'
+    },
+    data=df.tail(100).to_dict('records')
+)
+
 app = dash.Dash(__name__)
 
 app.layout = html.Div(children=[
@@ -172,7 +199,11 @@ app.layout = html.Div(children=[
         html.Div(className='col-md-6', children=[
             table_requesturi
         ])
-    ], style={'background-color': 'darkgray'})
+    ], style={'background-color': 'darkgray'}),
+    html.Div(className='row', children=[
+        html.Div(className='col-md-12', children=[
+            html.H2(children='Last 100 requests', style={'text-align': 'center'}),        table_last_100_results    ]),
+], style={'background-color': 'darkgray'})
 ], style={'background-color': 'darkgray'})
 
 
